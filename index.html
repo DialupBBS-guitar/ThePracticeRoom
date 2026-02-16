@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>The Practice Room — Guitar Practice</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet"/>
 <style>
@@ -46,6 +48,17 @@ body{
   position:relative;
   font-size:8px;
   line-height:1.6;
+  /* iOS safe areas */
+  padding-left:env(safe-area-inset-left);
+  padding-right:env(safe-area-inset-right);
+}
+
+html{
+  /* Prevent zoom on iOS */
+  -webkit-text-size-adjust:100%;
+  /* Support safe areas */
+  padding:0;
+  margin:0;
 }
 
 /* Scanline CRT effect */
@@ -1815,6 +1828,9 @@ input[type=range].vol-range:hover::-webkit-slider-thumb{background:var(--accent)
   /* Mini metronome - better mobile layout */
   #mini-metro{
     padding:10px 12px;
+    padding-left:max(12px, env(safe-area-inset-left));
+    padding-right:max(12px, env(safe-area-inset-right));
+    padding-bottom:max(10px, env(safe-area-inset-bottom));
     gap:10px;
     flex-wrap:wrap;
   }
@@ -2011,6 +2027,10 @@ input[type=range].vol-range:hover::-webkit-slider-thumb{background:var(--accent)
   gap:0;
   padding:0 28px;
   box-shadow:0 -4px 0 rgba(0,0,0,0.3), inset 0 2px 0 rgba(255,255,255,0.1);
+  /* iOS safe areas */
+  padding-left:max(28px, env(safe-area-inset-left));
+  padding-right:max(28px, env(safe-area-inset-right));
+  padding-bottom:env(safe-area-inset-bottom);
 }
 
 #mini-metro.mm-playing{
@@ -3968,7 +3988,14 @@ updateLooperBPMDisplay();
 // ═══════════════════════════════
 
 function getAudioCtx(){
-  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    
+    // iOS requires resume on user interaction
+    if(audioCtx.state === 'suspended'){
+      audioCtx.resume();
+    }
+  }
   return audioCtx;
 }
 
@@ -4410,11 +4437,44 @@ buildDialTicks();
 updateDial();
 
 // ── MOBILE TOUCH SUPPORT ──
+// iOS Audio unlock - critical for Safari
+let iosAudioUnlocked = false;
+
+function unlockIOSAudio(){
+  if(iosAudioUnlocked) return;
+  
+  const ctx = getAudioCtx();
+  if(ctx.state === 'suspended'){
+    ctx.resume().then(() => {
+      console.log('iOS Audio unlocked');
+      iosAudioUnlocked = true;
+    });
+  } else {
+    iosAudioUnlocked = true;
+  }
+  
+  // Play a silent sound to unlock audio (iOS requirement)
+  const oscillator = ctx.createOscillator();
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = 0; // Silent
+  oscillator.connect(gainNode);
+  gainNode.connect(ctx.destination);
+  oscillator.start(ctx.currentTime);
+  oscillator.stop(ctx.currentTime + 0.001);
+}
+
+// Unlock audio on ANY first touch/click (critical for iOS)
+document.addEventListener('touchstart', unlockIOSAudio, { once: true });
+document.addEventListener('click', unlockIOSAudio, { once: true });
+
 // Prevent double-tap zoom on buttons
 document.addEventListener('DOMContentLoaded', () => {
   const buttons = document.querySelectorAll('button');
   buttons.forEach(btn => {
     btn.addEventListener('touchstart', function(e) {
+      // Unlock iOS audio on button press
+      unlockIOSAudio();
+      
       // Prevent zoom on double-tap but allow the click
       e.preventDefault();
       this.click();
@@ -4431,6 +4491,7 @@ if('ontouchstart' in window){
   const volSlider = document.getElementById('mm-vol');
   if(volSlider){
     volSlider.addEventListener('touchstart', () => {
+      unlockIOSAudio(); // Unlock on slider touch too
       volSlider.style.cursor = 'grabbing';
     });
     volSlider.addEventListener('touchend', () => {
